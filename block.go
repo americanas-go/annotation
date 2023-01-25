@@ -7,13 +7,19 @@ type BlockHeader struct {
 
 type Block struct {
 	Header      BlockHeader
+	Module      string
 	File        string
+	Path        string
 	Package     string
 	Func        string
 	Struct      string
-	Annotations map[string]Annotation
+	Annotations []Annotation
 }
 
-func fromMap([]string) Block {
-	return Block{}
+func (b *Block) IsStruct() bool {
+	return b.Struct != "" && b.Func == ""
+}
+
+func (b *Block) IsFunc() bool {
+	return b.Struct == "" && b.Func != ""
 }

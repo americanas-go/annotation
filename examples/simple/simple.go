@@ -6,41 +6,14 @@ import (
 )
 
 // ExampleStruct Lorem ipsum dolor sit amet, consectetur adipiscing elit
-// @A Package github.com/americanas-go/inject
-// @A RelativePackage examples/simple
 // @A App xpto
 // @A HandlerType HTTP
-// @A Type Interface
 type ExampleStruct struct {
 }
 
-// FooStructMethod title
-// @Grapper name=xpto
-func (t *ExampleStruct) FooStructMethod(ctx context.Context, r *http.Request) (interface{}, error) {
-	return Response{
-		Message: "Hello world",
-	}, nil
-}
-
-// New title
-// @Inject context.Context
-// @Provide *ExampleStruct name=xpto
-func New(ctx context.Context) *ExampleStruct {
-	return &ExampleStruct{}
-}
-
-// Xpto title
-// @Inject *ExampleStruct name=xpto
-// @Invoke
-func Xpto(ex *ExampleStruct) {
-}
-
 // FooMethod Lorem ipsum dolor sit amet, consectetur adipiscing elit
-// @A Package github.com/americanas-go/inject
-// @A RelativePackage examples/simple
 // @A App xpto
 // @A HandlerType HTTP
-// @A Type Function
 // @A Path /foo
 // @A Path /
 // @A Method POST

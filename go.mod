@@ -3,7 +3,10 @@ module github.com/americanas-go/annotation
 go 1.19
 
 require (
+	github.com/americanas-go/errors v1.1.0
 	github.com/americanas-go/log v1.8.6
+	github.com/mitchellh/mapstructure v1.5.0
+	golang.org/x/mod v0.7.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

@@ -14,14 +14,14 @@ func main() {
 
 	annotation.WithLogger(zerolog.NewLogger(zerolog.WithLevel("TRACE")))
 
-	path, err := os.Getwd()
+	basePath, err := os.Getwd()
 	if err != nil {
 		log.Panic(err)
 	}
 
-	log.Infof("current path is %s", path)
+	log.Infof("current path is %s", basePath)
 
-	blocks, err := annotation.CollectByPath(path + "/examples/simple")
+	blocks, err := annotation.Collect(basePath + "/examples/simple")
 	if err != nil {
 		log.Error(err.Error())
 	}
