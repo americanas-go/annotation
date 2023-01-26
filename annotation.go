@@ -29,7 +29,9 @@ func (m *Annotation) AsMap() map[string]string {
 	mp := make(map[string]string)
 	for _, entry := range entries {
 		e := strings.Split(entry, "=")
-		mp[e[0]] = e[1]
+		if len(e) == 2 {
+			mp[e[0]] = e[1]
+		}
 	}
 	return mp
 }
