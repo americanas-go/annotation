@@ -28,8 +28,10 @@ type ExampleStruct struct {
 // @A Param header bar string true tiam sed efficitur purus
 // @A Body github.com/americanas-go/inject/examples/simple.Request
 // @A Response 201 github.com/americanas-go/inject/examples/simple.Response tiam sed efficitur purus, at lacinia magna
-func FooMethod(ctx context.Context, r *http.Request) (interface{}, error) {
-	return Response{
+//
+// ctx lorem inpsum
+func FooMethod(ctx context.Context, req *http.Request) (resp *Response, err error) {
+	return &Response{
 		Message: "Hello world",
 	}, nil
 }

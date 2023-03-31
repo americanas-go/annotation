@@ -11,15 +11,31 @@ type Block struct {
 	File        string
 	Path        string
 	Package     string
-	Func        string
+	Func        BlockFunc
 	Struct      string
 	Annotations []Annotation
 }
 
+type BlockFunc struct {
+	Name       string
+	Parameters []BlockFuncParameter
+	Results    []BlockFuncResult
+}
+
+type BlockFuncParameter struct {
+	Name string
+	Type string
+}
+
+type BlockFuncResult struct {
+	Name string
+	Type string
+}
+
 func (b *Block) IsStruct() bool {
-	return b.Struct != "" && b.Func == ""
+	return b.Struct != "" && b.Func.Name == ""
 }
 
 func (b *Block) IsFunc() bool {
-	return b.Struct == "" && b.Func != ""
+	return b.Struct == "" && b.Func.Name != ""
 }
