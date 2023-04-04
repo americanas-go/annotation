@@ -4,7 +4,6 @@ go 1.19
 
 require (
 	github.com/americanas-go/log v1.8.6
-	github.com/americanas-go/utils v1.1.0
 	github.com/jpfaria/tests v0.0.1
 	github.com/mitchellh/mapstructure v1.5.0
 	golang.org/x/tools v0.1.12
