@@ -1,18 +1,11 @@
 package annotation
 
 import (
-	"fmt"
 	"go/ast"
-	"go/importer"
-	"go/parser"
-	"go/token"
 	"go/types"
-	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/americanas-go/errors"
-	"golang.org/x/mod/modfile"
+	"golang.org/x/tools/go/packages"
 )
 
 const (
@@ -20,111 +13,22 @@ const (
 	cb = "//"
 )
 
+var (
+	corePkgs = []string{"unsafe", "runtime", "bytes", "internal", "errors",
+		"fmt", "go/", "strings", "golang.org", "sync", "io", "math", "net", "sort", "syscall", "time",
+		"log", "unicode", "reflect", "strconv", "encoding", "regexp", "os", "context", "path", "compress", "bufio",
+		"hash",
+	}
+)
+
 func Collect(path string) ([]Block, error) {
-
-	pkgMap, err := parseDir(path)
-	if err != nil {
-		return nil, err
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedTypesInfo | packages.NeedSyntax |
+			packages.NeedFiles | packages.NeedImports | packages.NeedDeps | packages.NeedTypes |
+			packages.NeedEmbedFiles | packages.NeedExportFile | packages.NeedModule | packages.NeedCompiledGoFiles,
 	}
-
-	return filterPackages(pkgMap)
-}
-
-func moduleName(basePath string, internalPath string) (string, error) {
-	log.Tracef("getting module name")
-
-	t := basePath + internalPath
-	fileName := "go.mod"
-
-	var dat []byte
-
-	for {
-		f := fmt.Sprintf("%v/%v", t, fileName)
-
-		log.Debugf("attempt read go.mod on %s", f)
-
-		dat, _ = os.ReadFile(f)
-		if len(dat) > 0 {
-			break
-		}
-
-		rel, _ := filepath.Rel(basePath, t)
-		if rel == "." {
-			break
-		}
-
-		t += "/.."
-	}
-
-	if len(dat) == 0 {
-		return "", errors.NotFoundf("go.mod")
-	}
-
-	return modfile.ModulePath(dat), nil
-}
-
-type Pkg struct {
-	FSet *token.FileSet
-	Pkg  *ast.Package
-}
-
-func parseDir(rootPath string) (map[string]Pkg, error) {
-	log.Tracef("parsing dir %s", rootPath)
-
-	var err error
-
-	var paths []string
-	paths, err = scanDir(rootPath)
-	if err != nil {
-		return nil, err
-	}
-
-	pkgMap := make(map[string]Pkg)
-	for _, path := range paths {
-		fset := token.NewFileSet()
-
-		var curPkgMap map[string]*ast.Package
-		curPkgMap, err = parser.ParseDir(fset, path, nil, parser.ParseComments)
-
-		if err != nil {
-			return nil, err
-		}
-
-		for k, v := range curPkgMap {
-			pkgMap[k] = Pkg{
-				FSet: fset,
-				Pkg:  v,
-			}
-		}
-	}
-
-	return pkgMap, nil
-}
-
-func scanDir(path string) ([]string, error) {
-	log.Tracef("scan dir %s", path)
-
-	var folders []string
-
-	if err := filepath.Walk(path, func(path string, f os.FileInfo, err error) error {
-
-		f, err = os.Stat(path)
-		if err != nil {
-			return err
-		}
-
-		mode := f.Mode()
-		if mode.IsDir() {
-			log.Debugf("found dir %s", path)
-			folders = append(folders, path)
-		}
-
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return folders, nil
+	processed := make(map[string]bool)
+	return filterPackages(cfg, path, processed)
 }
 
 func checkAnnotation(a string) bool {
@@ -135,48 +39,69 @@ func checkAnnotation(a string) bool {
 	return false
 }
 
-func filterPackages(pkgMap map[string]Pkg) (m []Block, err error) {
+func isCorePackage(pkgPath string) bool {
+	for _, n := range corePkgs {
+		if strings.HasPrefix(pkgPath, n) {
+			return true
+		}
+	}
+	return false
+}
 
-	log.Tracef("filtering annotations")
+func filterPackages(cfg *packages.Config, value string, processed map[string]bool) (m []Block, err error) {
 
-	var basePath string
-	basePath, err = os.Getwd()
+	if processed[value] || isCorePackage(value) {
+		return
+	}
+
+	log.Tracef("filtering packages on %s", value)
+
+	pkgs, err := packages.Load(cfg, value)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, p := range pkgMap {
-		log.Tracef("parsing package %s", p.Pkg.Name)
-		mm, err := filterFiles(p, basePath)
+	processed[value] = true
+
+	for _, p := range pkgs {
+		log.Tracef("parsing package %s", p.String())
+		for _, imp := range p.Imports {
+			mm, err := filterPackages(cfg, imp.String(), processed)
+			if err != nil {
+				return nil, err
+			}
+			m = append(m, mm...)
+		}
+		mm, err := filterFiles(p)
 		if err != nil {
 			return nil, err
 		}
 		m = append(m, mm...)
 	}
+
 	return m, nil
 }
 
-func filterFiles(p Pkg, basePath string) (m []Block, err error) {
-	for fileName, file := range p.Pkg.Files {
-		log.Tracef("parsing file %s", fileName)
+func filterFiles(p *packages.Package) (m []Block, err error) {
+	for _, file := range p.Syntax {
 
-		tgt := strings.ReplaceAll(filepath.Dir(fileName), basePath, "")
+		log.Tracef("parsing file %s", file.Name.String())
 
-		modName, err := moduleName(basePath, tgt)
-		if err != nil {
-			return nil, err
+		var modName string
+		if p.Module != nil {
+			modName = p.Module.Path
 		}
 
 		block := Block{
-			File:    fileName,
-			Path:    tgt,
+			File:    file.Name.String(),
+			Path:    p.PkgPath,
 			Module:  modName,
-			Package: p.Pkg.Name,
+			Package: p.Name,
 		}
 
 		for _, commentGroup := range file.Comments {
 
-			block, exists, err := processCommentGroups(commentGroup, file, p.FSet, block)
+			block, exists, err := processCommentGroups(commentGroup, p, file, block)
 			if err != nil {
 				return nil, err
 			}
@@ -224,7 +149,7 @@ func parseHeader(cg *ast.CommentGroup, block Block) (string, Block) {
 	return n, block
 }
 
-func processCommentGroups(cg *ast.CommentGroup, file *ast.File, fset *token.FileSet, block Block) (Block, bool, error) {
+func processCommentGroups(cg *ast.CommentGroup, pkg *packages.Package, file *ast.File, block Block) (Block, bool, error) {
 	cmts, contains := getComments(cg)
 	if !contains {
 		return Block{}, false, nil
@@ -238,7 +163,7 @@ func processCommentGroups(cg *ast.CommentGroup, file *ast.File, fset *token.File
 			if obj.Kind.String() == "func" {
 
 				var err error
-				block, err = parseFunc(block, n, fset, file)
+				block, err = parseFunc(block, pkg, name, file)
 				if err != nil {
 					return Block{}, false, err
 				}
@@ -261,16 +186,10 @@ func processCommentGroups(cg *ast.CommentGroup, file *ast.File, fset *token.File
 	return block, true, nil
 }
 
-func parseFunc(block Block, n string, fset *token.FileSet, file *ast.File) (Block, error) {
+func parseFunc(block Block, pkg *packages.Package, n string, file *ast.File) (Block, error) {
 
 	block.Func = BlockFunc{
 		Name: n,
-	}
-
-	conf := types.Config{Importer: importer.Default()}
-	pkg, err := conf.Check("", fset, []*ast.File{file}, nil)
-	if err != nil {
-		return Block{}, err
 	}
 
 	ast.Inspect(file, func(node ast.Node) bool {
@@ -279,7 +198,7 @@ func parseFunc(block Block, n string, fset *token.FileSet, file *ast.File) (Bloc
 
 			if fn.Name.Name == n {
 
-				sig, _ := pkg.Scope().Lookup(fn.Name.Name).(*types.Func)
+				sig, _ := pkg.TypesInfo.ObjectOf(fn.Name).(*types.Func)
 				if sig != nil {
 
 					s := sig.Type().(*types.Signature)

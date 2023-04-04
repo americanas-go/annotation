@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"net/http"
+
+	"github.com/jpfaria/tests/annotated"
 )
 
 // ExampleStruct Lorem ipsum dolor sit amet, consectetur adipiscing elit
@@ -30,9 +32,9 @@ type ExampleStruct struct {
 // @A Response 201 github.com/americanas-go/inject/examples/simple.Response tiam sed efficitur purus, at lacinia magna
 //
 // ctx lorem inpsum
-func FooMethod(ctx context.Context, req *http.Request) (resp *Response, err error) {
-	return &Response{
-		Message: "Hello world",
+func FooMethod(ctx context.Context, req *http.Request) (h *annotated.Loren, err error) {
+	return &annotated.Loren{
+		Name: "Hello world",
 	}, nil
 }
 
