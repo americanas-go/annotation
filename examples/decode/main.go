@@ -36,12 +36,12 @@ func main() {
 		log.Error(err.Error())
 	}
 
-	blocks := collector.entries()
+	entries := collector.Entries()
 
-	j, _ := yaml.Marshal(blocks)
+	j, _ := yaml.Marshal(entries)
 	fmt.Println(string(j))
 
-	for _, block := range blocks {
+	for _, block := range entries {
 		for _, annon := range block.Annotations {
 			if annon.Name == "RestResponse" {
 				rp := RestResponse{}

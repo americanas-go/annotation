@@ -29,7 +29,7 @@ func main() {
 		log.Error(err.Error())
 	}
 
-	j, _ := yaml.Marshal(collector.entries())
+	j, _ := yaml.Marshal(collector.Entries())
 	fmt.Println(string(j))
 
 }

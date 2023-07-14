@@ -353,11 +353,11 @@ func (c *Collector) parseHeader(cg *ast.CommentGroup, Entry Entry) (string, Entr
 	return n, Entry
 }
 
-func (c *Collector) parseFunc(Entry Entry, pkg *packages.Package, name string, file *ast.File) (Entry, error) {
+func (c *Collector) parseFunc(entry Entry, pkg *packages.Package, name string, file *ast.File) (Entry, error) {
 
 	log.Tracef("parsing func %s on package %s", name, pkg.Name)
 
-	Entry.Func = EntryFunc{
+	entry.Func = EntryFunc{
 		Name: name,
 	}
 
@@ -372,8 +372,8 @@ func (c *Collector) parseFunc(Entry Entry, pkg *packages.Package, name string, f
 
 					s := sig.Type().(*types.Signature)
 
-					Entry = c.parseFuncParams(name, s, Entry)
-					Entry = c.parseFuncResults(name, s, Entry)
+					entry = c.parseFuncParams(name, s, entry)
+					entry = c.parseFuncResults(name, s, entry)
 
 				}
 
@@ -381,24 +381,24 @@ func (c *Collector) parseFunc(Entry Entry, pkg *packages.Package, name string, f
 		}
 		return true
 	})
-	return Entry, nil
+	return entry, nil
 }
 
-func (c *Collector) parseFuncParams(name string, s *types.Signature, Entry Entry) Entry {
+func (c *Collector) parseFuncParams(name string, s *types.Signature, entry Entry) Entry {
 	log.Tracef("parsing func %s params", name)
 
 	params := s.Params()
 	if params.Len() > 0 {
 		for i := 0; i < params.Len(); i++ {
 			param := params.At(i)
-			Entry.Func.Parameters = append(Entry.Func.Parameters, EntryFuncParameter{
+			entry.Func.Parameters = append(entry.Func.Parameters, EntryFuncParameter{
 				Name: param.Name(),
 				Type: param.Type().String(),
 			})
 		}
 	}
 
-	return Entry
+	return entry
 }
 
 func (c *Collector) parseFuncResults(name string, s *types.Signature, entry Entry) Entry {
