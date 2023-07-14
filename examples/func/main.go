@@ -21,8 +21,9 @@ func main() {
 	log.Infof("current path is %s", basePath)
 
 	blocks, err := annotation.Collect(
-		annotation.WithPath(basePath+"/examples/simple/app"),
-		annotation.WithPackages("github.com/americanas-go/annotation", "github.com/jpfaria/tests/annotated"),
+		annotation.WithFilters("Rest"),
+		annotation.WithPath(basePath+"/examples/func/app"),
+		annotation.WithPackages("github.com/americanas-go/annotation"),
 	)
 	if err != nil {
 		log.Error(err.Error())

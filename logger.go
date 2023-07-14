@@ -1,6 +1,8 @@
 package annotation
 
-import "fmt"
+import (
+	"fmt"
+)
 
 var log = NewLogger()
 
@@ -46,7 +48,7 @@ func (n DefaultLogger) Tracef(format string, args ...interface{}) {
 }
 
 func (n DefaultLogger) Trace(args ...interface{}) {
-	fmt.Println(fmt.Sprintln(args))
+	fmt.Println(fmt.Sprintln(args...))
 }
 
 func (n DefaultLogger) Debugf(format string, args ...interface{}) {
@@ -54,7 +56,7 @@ func (n DefaultLogger) Debugf(format string, args ...interface{}) {
 }
 
 func (n DefaultLogger) Debug(args ...interface{}) {
-	fmt.Println(fmt.Sprintln(args))
+	fmt.Println(fmt.Sprintln(args...))
 }
 
 func (n DefaultLogger) Infof(format string, args ...interface{}) {
@@ -62,7 +64,7 @@ func (n DefaultLogger) Infof(format string, args ...interface{}) {
 }
 
 func (n DefaultLogger) Info(args ...interface{}) {
-	fmt.Println(fmt.Sprintln(args))
+	fmt.Println(fmt.Sprintln(args...))
 }
 
 func (n DefaultLogger) Warnf(format string, args ...interface{}) {
@@ -70,7 +72,7 @@ func (n DefaultLogger) Warnf(format string, args ...interface{}) {
 }
 
 func (n DefaultLogger) Warn(args ...interface{}) {
-	fmt.Println(fmt.Sprintln(args))
+	fmt.Println(fmt.Sprintln(args...))
 }
 
 func (n DefaultLogger) Errorf(format string, args ...interface{}) {
@@ -78,7 +80,7 @@ func (n DefaultLogger) Errorf(format string, args ...interface{}) {
 }
 
 func (n DefaultLogger) Error(args ...interface{}) {
-	fmt.Println(fmt.Sprintln(args))
+	fmt.Println(fmt.Sprintln(args...))
 }
 
 func (n DefaultLogger) Fatalf(format string, args ...interface{}) {
@@ -86,7 +88,7 @@ func (n DefaultLogger) Fatalf(format string, args ...interface{}) {
 }
 
 func (n DefaultLogger) Fatal(args ...interface{}) {
-	fmt.Println(fmt.Sprintln(args))
+	fmt.Println(fmt.Sprintln(args...))
 }
 
 func (n DefaultLogger) Panicf(format string, args ...interface{}) {
@@ -94,7 +96,7 @@ func (n DefaultLogger) Panicf(format string, args ...interface{}) {
 }
 
 func (n DefaultLogger) Panic(args ...interface{}) {
-	fmt.Println(fmt.Sprintln(args))
+	fmt.Println(fmt.Sprintln(args...))
 }
 
 func NewLogger() Logger {

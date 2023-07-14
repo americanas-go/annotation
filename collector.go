@@ -1,6 +1,7 @@
 package annotation
 
 import (
+	"errors"
 	"go/ast"
 	"go/types"
 	"strings"
@@ -8,125 +9,120 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-const (
-	an = "@A"
-	cb = "//"
-)
+type Option func(*Collector) error
 
-var (
-	corePkgs = []string{
-		"golang.org",
-		"archive",
-		"zip",
-		"bufio",
-		"builtin",
-		"bytes",
-		"compress",
-		"container",
-		"context",
-		"crypto",
-		"database",
-		"debug",
-		"embed",
-		"encoding",
-		"errors",
-		"expvar",
-		"flag",
-		"fmt",
-		"go",
-		"hash",
-		"html",
-		"image",
-		"index",
-		"io",
-		"log",
-		"math",
-		"mime",
-		"net",
-		"os",
-		"path",
-		"plugin",
-		"reflect",
-		"regexp",
-		"runtime",
-		"sort",
-		"strconv",
-		"strings",
-		"sync",
-		"syscall",
-		"testing",
-		"text",
-		"time",
-		"unicode",
-		"unsafe",
+func WithFilters(filters ...string) Option {
+	return func(c *Collector) error {
+		if filters == nil {
+			return errors.New("no types informed")
+		}
+		c.filters = filters
+		return nil
 	}
-)
-
-func Collect(path string) ([]Block, error) {
-	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedTypesInfo | packages.NeedSyntax |
-			packages.NeedFiles | packages.NeedImports | packages.NeedDeps | packages.NeedTypes |
-			packages.NeedEmbedFiles | packages.NeedExportFile | packages.NeedModule | packages.NeedCompiledGoFiles,
-	}
-	processed := make(map[string]bool)
-	return filterPackages(cfg, path, processed)
 }
 
-func checkAnnotation(a string) bool {
-	pre := strings.Join([]string{cb, an}, " ")
-	if len(a) > len(pre) && pre == a[0:len(pre)] {
-		return true
+func WithPackages(pkgs ...string) Option {
+	return func(c *Collector) error {
+		if pkgs == nil {
+			return errors.New("no packages informed")
+		}
+		for _, pkg := range pkgs {
+			c.pkgs = append(c.pkgs, pkg)
+		}
+		return nil
 	}
-	return false
 }
 
-func isCorePackage(pkgPath string) bool {
-	for _, n := range corePkgs {
-		if strings.HasPrefix(pkgPath, n) {
-			return true
+func WithPath(path string) Option {
+	return func(c *Collector) error {
+		if path == "" {
+			return errors.New("no path informed")
+		}
+		c.path = path
+		return nil
+	}
+}
+
+type Collector struct {
+	filters      []string
+	pkgs         []string
+	path         string
+	pkgProcessed map[string]bool
+	pkgConfig    *packages.Config
+	m            []Block
+}
+
+func Collect(options ...Option) ([]Block, error) {
+	c := &Collector{
+		pkgProcessed: make(map[string]bool),
+		pkgConfig: &packages.Config{
+			Mode: packages.NeedName | packages.NeedTypesInfo | packages.NeedSyntax |
+				packages.NeedFiles | packages.NeedImports | packages.NeedDeps | packages.NeedTypes |
+				packages.NeedEmbedFiles | packages.NeedExportFile | packages.NeedModule | packages.NeedCompiledGoFiles,
+		},
+	}
+	for _, opt := range options {
+		err := opt(c)
+		if err != nil {
+			panic(err.Error())
 		}
 	}
-	return false
+
+	if len(c.filters) == 0 {
+		c.filters = []string{""}
+	}
+
+	if c.pkgs == nil || c.path == "" {
+		return nil, errors.New("packages and path are required")
+	}
+	log.Tracef("starting to collect annotations. filters: %v packages: %v path: %s", c.filters, c.pkgs, c.path)
+	if err := c.filterPackages(c.path); err != nil {
+		return nil, err
+	}
+	return c.m, nil
 }
 
-func filterPackages(cfg *packages.Config, value string, processed map[string]bool) (m []Block, err error) {
+func (c *Collector) filterPackages(value string) (err error) {
 
-	if processed[value] || isCorePackage(value) {
+	if c.pkgProcessed[value] || !c.isAllowedPackage(value) {
 		return
 	}
 
 	log.Tracef("filtering packages on %s", value)
 
-	pkgs, err := packages.Load(cfg, value)
+	pkgs, err := packages.Load(c.pkgConfig, value)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	processed[value] = true
+	c.pkgProcessed[value] = true
 
 	for _, p := range pkgs {
+
 		log.Tracef("parsing package %s", p.String())
+
 		for _, imp := range p.Imports {
-			mm, err := filterPackages(cfg, imp.String(), processed)
+			err := c.filterPackages(imp.String())
 			if err != nil {
-				return nil, err
+				return err
 			}
-			m = append(m, mm...)
 		}
-		mm, err := filterFiles(p)
+
+		mm, err := c.filterFiles(p)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		m = append(m, mm...)
+
+		c.m = append(c.m, mm...)
 	}
 
-	return m, nil
+	return nil
 }
 
-func filterFiles(p *packages.Package) (m []Block, err error) {
+func (c *Collector) filterFiles(p *packages.Package) (m []Block, err error) {
 	for _, file := range p.Syntax {
 
-		log.Tracef("parsing file %s", file.Name.String())
+		log.Tracef("parsing file %s", file.Name)
 
 		var modName string
 		if p.Module != nil {
@@ -142,7 +138,7 @@ func filterFiles(p *packages.Package) (m []Block, err error) {
 
 		for _, commentGroup := range file.Comments {
 
-			block, exists, err := processCommentGroups(commentGroup, p, file, block)
+			block, exists, err := c.processCommentGroups(commentGroup, p, file, block)
 			if err != nil {
 				return nil, err
 			}
@@ -157,54 +153,24 @@ func filterFiles(p *packages.Package) (m []Block, err error) {
 	return m, nil
 }
 
-func getComments(cg *ast.CommentGroup) ([]string, bool) {
-	var contains bool
-	var cmts []string
-	for _, c := range cg.List {
-		if !checkAnnotation(c.Text) {
-			continue
-		}
-		contains = true
-		cmt := strings.ReplaceAll(c.Text,
-			strings.Join([]string{cb, an, ""}, " "), "")
-		cmts = append(cmts, cmt)
-		log.Debugf("discovered annotation %s", cmt)
-	}
-	if !contains {
-		return nil, false
-	}
-	return cmts, true
-}
+func (c *Collector) processCommentGroups(cg *ast.CommentGroup, pkg *packages.Package, file *ast.File, block Block) (Block, bool, error) {
 
-func parseHeader(cg *ast.CommentGroup, block Block) (string, Block) {
-	w := strings.Split(strings.ReplaceAll(cg.List[0].Text, cb, ""), " ")
-	n := w[1]
-	var title string
-	if len(w) > 2 {
-		title = strings.Join(w[2:], " ")
-	}
+	log.Tracef("process comments %s", file.Name)
 
-	block.Header.Title = title
-	block.Header.Description = ""
-
-	return n, block
-}
-
-func processCommentGroups(cg *ast.CommentGroup, pkg *packages.Package, file *ast.File, block Block) (Block, bool, error) {
-	cmts, contains := getComments(cg)
+	eas, contains := c.getComments(cg)
 	if !contains {
 		return Block{}, false, nil
 	}
 
 	var n string
-	n, block = parseHeader(cg, block)
+	n, block = c.parseHeader(cg, block)
 
 	for name, obj := range file.Scope.Objects {
 		if name == n {
 			if obj.Kind.String() == "func" {
 
 				var err error
-				block, err = parseFunc(block, pkg, name, file)
+				block, err = c.parseFunc(block, pkg, name, file)
 				if err != nil {
 					return Block{}, false, err
 				}
@@ -216,36 +182,136 @@ func processCommentGroups(cg *ast.CommentGroup, pkg *packages.Package, file *ast
 		}
 	}
 
-	for _, cmt := range cmts {
-		fields := strings.Split(cmt, " ")
-		block.Annotations = append(block.Annotations, Annotation{
-			Name:  strings.ToLower(fields[0]),
-			Value: strings.ToLower(strings.Join(fields[1:], " ")),
-		})
-	}
+	block.Annotations = eas
 
 	return block, true, nil
 }
 
-func parseFunc(block Block, pkg *packages.Package, n string, file *ast.File) (Block, error) {
+func (c *Collector) getComments(cg *ast.CommentGroup) (cmts []Annotation, ok bool) {
+
+	log.Tracef("get comments comments")
+
+	var contains bool
+	for _, cc := range cg.List {
+		ea, ok := c.extractAnnotation(cc.Text)
+		if !ok {
+			continue
+		}
+		contains = true
+		cmts = append(cmts, ea)
+	}
+	if !contains {
+		log.Debugf("there is no annotation in the comment block")
+		return nil, false
+	}
+	return cmts, true
+}
+
+func (c *Collector) extractAnnotation(expr string) (Annotation, bool) {
+
+	log.Tracef("extracting an annotation from the comment. %s", expr)
+
+	if !strings.HasPrefix(expr, "// @") {
+		log.Debugf("the comment is not an annotation. %s", expr)
+		return Annotation{}, false
+	}
+
+	if !c.isValidAnnotation(expr) {
+		log.Warnf("The annotation does not follow the format and will be ignored. %s", expr)
+		return Annotation{}, false
+	}
+
+	for _, filter := range c.filters {
+		annon := strings.Join([]string{"@", filter}, "")
+		if !strings.Contains(expr, annon) {
+			log.Warnf("The annotation is valid but will be ignored as it is not included in the filters. %s", expr)
+			continue
+		}
+		values := strings.Split(expr, "(")
+		value := strings.ReplaceAll(values[1], ")", "")
+		names := strings.Split(values[0], "@")
+		name := strings.TrimSpace(names[1])
+		log.Debugf("discovered annotation %s with values (%s)", name, value)
+		return NewAnnotation(name, value), true
+	}
+	return Annotation{}, false
+}
+
+func (c *Collector) isValidAnnotation(input string) bool {
+
+	log.Tracef("checking if it is a valid annotation. %s", input)
+
+	split := strings.SplitN(input, "@", 2)
+
+	// Checking if string starts with "// @"
+	if !(len(split) == 2 && split[0] == "// ") {
+		return false
+	}
+
+	// Checking if there are parentheses and if they have valid key-value pairs
+	parenSplit := strings.SplitN(split[1], "(", 2)
+	if len(parenSplit) == 2 {
+		parenContent := strings.Trim(parenSplit[1], " )")
+		pairs := strings.Split(parenContent, ",")
+		for _, pair := range pairs {
+			if !strings.Contains(pair, "=") {
+				return false
+			}
+		}
+		log.Debugf("there is a valid annotation in the comment")
+		return true
+	}
+
+	return false
+}
+
+func (c *Collector) isAllowedPackage(pkgPath string) bool {
+	for _, n := range c.pkgs {
+		if strings.Contains(pkgPath, n) {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Collector) parseHeader(cg *ast.CommentGroup, block Block) (string, Block) {
+
+	log.Tracef("parsing header on the comment group")
+
+	w := strings.Split(strings.ReplaceAll(cg.List[0].Text, "//", ""), " ")
+	n := w[1]
+	var title string
+	if len(w) > 2 {
+		title = strings.Join(w[2:], " ")
+	}
+
+	block.Header.Title = title
+	block.Header.Description = "// TODO"
+
+	return n, block
+}
+
+func (c *Collector) parseFunc(block Block, pkg *packages.Package, name string, file *ast.File) (Block, error) {
+
+	log.Tracef("parsing func %s on package %s", name, pkg.Name)
 
 	block.Func = BlockFunc{
-		Name: n,
+		Name: name,
 	}
 
 	ast.Inspect(file, func(node ast.Node) bool {
 		switch fn := node.(type) {
 		case *ast.FuncDecl:
 
-			if fn.Name.Name == n {
+			if fn.Name.Name == name {
 
 				sig, _ := pkg.TypesInfo.ObjectOf(fn.Name).(*types.Func)
 				if sig != nil {
 
 					s := sig.Type().(*types.Signature)
 
-					block = parseFuncParams(s, block)
-					block = parseFuncResults(s, block)
+					block = c.parseFuncParams(s, block)
+					block = c.parseFuncResults(s, block)
 
 				}
 
@@ -256,7 +322,9 @@ func parseFunc(block Block, pkg *packages.Package, n string, file *ast.File) (Bl
 	return block, nil
 }
 
-func parseFuncParams(s *types.Signature, block Block) Block {
+func (c *Collector) parseFuncParams(s *types.Signature, block Block) Block {
+	log.Tracef("parsing func params")
+
 	params := s.Params()
 	if params.Len() > 0 {
 		for i := 0; i < params.Len(); i++ {
@@ -271,7 +339,8 @@ func parseFuncParams(s *types.Signature, block Block) Block {
 	return block
 }
 
-func parseFuncResults(s *types.Signature, block Block) Block {
+func (c *Collector) parseFuncResults(s *types.Signature, block Block) Block {
+	log.Tracef("parsing func results")
 	results := s.Results()
 	if results.Len() > 0 {
 		for i := 0; i < results.Len(); i++ {
