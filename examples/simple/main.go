@@ -20,7 +20,8 @@ func main() {
 
 	log.Infof("current path is %s", basePath)
 
-	blocks, err := annotation.Collect(
+	collector, err := annotation.Collect(
+		// annotation.WithFilters("Inject"),
 		annotation.WithPath(basePath+"/examples/simple/app"),
 		annotation.WithPackages("github.com/americanas-go/annotation", "github.com/jpfaria/tests/annotated"),
 	)
@@ -28,7 +29,7 @@ func main() {
 		log.Error(err.Error())
 	}
 
-	j, _ := yaml.Marshal(blocks)
+	j, _ := yaml.Marshal(collector.entries())
 	fmt.Println(string(j))
 
 }

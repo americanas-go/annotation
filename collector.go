@@ -49,10 +49,10 @@ type Collector struct {
 	path         string
 	pkgProcessed map[string]bool
 	pkgConfig    *packages.Config
-	m            []Block
+	entries      []Entry
 }
 
-func Collect(options ...Option) ([]Block, error) {
+func Collect(options ...Option) (*Collector, error) {
 	c := &Collector{
 		pkgProcessed: make(map[string]bool),
 		pkgConfig: &packages.Config{
@@ -64,7 +64,7 @@ func Collect(options ...Option) ([]Block, error) {
 	for _, opt := range options {
 		err := opt(c)
 		if err != nil {
-			panic(err.Error())
+			return nil, errors.New("packages and path are required")
 		}
 	}
 
@@ -79,12 +79,66 @@ func Collect(options ...Option) ([]Block, error) {
 	if err := c.filterPackages(c.path); err != nil {
 		return nil, err
 	}
-	return c.m, nil
+	return c, nil
+}
+
+func (c *Collector) Entries() []Entry {
+	return c.entries
+}
+
+func (c *Collector) EntriesWithResultType(annotation string, result string) (entries []Entry) {
+	for _, entry := range c.Entries() {
+		if entry.IsStruct() {
+			continue
+		}
+		var r, a bool
+		for _, res := range entry.Func.Results {
+			if res.Type == result {
+				r = true
+				break
+			}
+		}
+		for _, ann := range entry.Annotations {
+			if ann.Name == annotation {
+				a = true
+				break
+			}
+		}
+		if a && r {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+func (c *Collector) EntriesWith(annotation string) (entries []Entry) {
+	for _, entry := range c.Entries() {
+		for _, ann := range entry.Annotations {
+			if ann.Name == annotation {
+				entries = append(entries, entry)
+				break
+			}
+		}
+	}
+	return entries
+}
+
+func (c *Collector) EntriesWithPrefix(prefix string) (entries []Entry) {
+	for _, entry := range c.Entries() {
+		for _, ann := range entry.Annotations {
+			if strings.HasPrefix(ann.Name, prefix) {
+				entries = append(entries, entry)
+				break
+			}
+		}
+	}
+	return entries
 }
 
 func (c *Collector) filterPackages(value string) (err error) {
 
 	if c.pkgProcessed[value] || !c.isAllowedPackage(value) {
+		log.Debugf("the package %s has already been processed or is not in the list", value)
 		return
 	}
 
@@ -102,24 +156,27 @@ func (c *Collector) filterPackages(value string) (err error) {
 		log.Tracef("parsing package %s", p.String())
 
 		for _, imp := range p.Imports {
+
+			log.Debugf("parsing import %s", imp)
+
 			err := c.filterPackages(imp.String())
 			if err != nil {
 				return err
 			}
 		}
 
-		mm, err := c.filterFiles(p)
+		entries, err := c.filterFiles(p)
 		if err != nil {
 			return err
 		}
 
-		c.m = append(c.m, mm...)
+		c.entries = append(c.entries, entries...)
 	}
 
 	return nil
 }
 
-func (c *Collector) filterFiles(p *packages.Package) (m []Block, err error) {
+func (c *Collector) filterFiles(p *packages.Package) (m []Entry, err error) {
 	for _, file := range p.Syntax {
 
 		log.Tracef("parsing file %s", file.Name)
@@ -129,7 +186,7 @@ func (c *Collector) filterFiles(p *packages.Package) (m []Block, err error) {
 			modName = p.Module.Path
 		}
 
-		block := Block{
+		entry := Entry{
 			File:    file.Name.String(),
 			Path:    p.PkgPath,
 			Module:  modName,
@@ -138,13 +195,13 @@ func (c *Collector) filterFiles(p *packages.Package) (m []Block, err error) {
 
 		for _, commentGroup := range file.Comments {
 
-			block, exists, err := c.processCommentGroups(commentGroup, p, file, block)
+			entry, exists, err := c.processCommentGroups(commentGroup, p, file, entry)
 			if err != nil {
 				return nil, err
 			}
 
 			if exists {
-				m = append(m, block)
+				m = append(m, entry)
 			}
 
 		}
@@ -153,38 +210,38 @@ func (c *Collector) filterFiles(p *packages.Package) (m []Block, err error) {
 	return m, nil
 }
 
-func (c *Collector) processCommentGroups(cg *ast.CommentGroup, pkg *packages.Package, file *ast.File, block Block) (Block, bool, error) {
+func (c *Collector) processCommentGroups(cg *ast.CommentGroup, pkg *packages.Package, file *ast.File, entry Entry) (Entry, bool, error) {
 
 	log.Tracef("process comments %s", file.Name)
 
 	eas, contains := c.getComments(cg)
 	if !contains {
-		return Block{}, false, nil
+		return Entry{}, false, nil
 	}
 
 	var n string
-	n, block = c.parseHeader(cg, block)
+	n, entry = c.parseHeader(cg, entry)
 
 	for name, obj := range file.Scope.Objects {
 		if name == n {
 			if obj.Kind.String() == "func" {
 
 				var err error
-				block, err = c.parseFunc(block, pkg, name, file)
+				entry, err = c.parseFunc(entry, pkg, name, file)
 				if err != nil {
-					return Block{}, false, err
+					return Entry{}, false, err
 				}
 
 			} else {
-				block.Struct = n
+				entry.Struct = n
 			}
 			break
 		}
 	}
 
-	block.Annotations = eas
+	entry.Annotations = eas
 
-	return block, true, nil
+	return entry, true, nil
 }
 
 func (c *Collector) getComments(cg *ast.CommentGroup) (cmts []Annotation, ok bool) {
@@ -201,40 +258,45 @@ func (c *Collector) getComments(cg *ast.CommentGroup) (cmts []Annotation, ok boo
 		cmts = append(cmts, ea)
 	}
 	if !contains {
-		log.Debugf("there is no annotation in the comment block")
+		log.Debugf("there is no annotation in the comment Entry")
 		return nil, false
 	}
 	return cmts, true
 }
 
-func (c *Collector) extractAnnotation(expr string) (Annotation, bool) {
+func (c *Collector) extractAnnotation(cmt string) (Annotation, bool) {
 
-	log.Tracef("extracting an annotation from the comment. %s", expr)
+	log.Tracef("extracting an annotation from the comment. %s", cmt)
 
-	if !strings.HasPrefix(expr, "// @") {
-		log.Debugf("the comment is not an annotation. %s", expr)
+	if !strings.HasPrefix(cmt, "// @") {
+		log.Debugf("the comment is not an annotation. %s", cmt)
 		return Annotation{}, false
 	}
 
-	if !c.isValidAnnotation(expr) {
-		log.Warnf("The annotation does not follow the format and will be ignored. %s", expr)
+	if !c.isValidAnnotation(cmt) {
+		log.Warnf("The annotation does not follow the format and will be ignored. %s", cmt)
 		return Annotation{}, false
 	}
 
 	for _, filter := range c.filters {
-		annon := strings.Join([]string{"@", filter}, "")
-		if !strings.Contains(expr, annon) {
-			log.Warnf("The annotation is valid but will be ignored as it is not included in the filters. %s", expr)
+		a := strings.Join([]string{"@", filter}, "")
+		if !strings.Contains(cmt, a) {
+			log.Warnf("The annotation is valid but will be ignored as it is not included in the filters. %s", cmt)
 			continue
 		}
-		values := strings.Split(expr, "(")
-		value := strings.ReplaceAll(values[1], ")", "")
-		names := strings.Split(values[0], "@")
-		name := strings.TrimSpace(names[1])
-		log.Debugf("discovered annotation %s with values (%s)", name, value)
+		name, value := c.splitNameValue(cmt)
+		log.Infof("discovered annotation %s with values (%s)", name, value)
 		return NewAnnotation(name, value), true
 	}
 	return Annotation{}, false
+}
+
+func (c *Collector) splitNameValue(cmt string) (string, string) {
+	fields := strings.Split(cmt, "(")
+	names := strings.Split(fields[0], "@")
+	name := strings.TrimSpace(names[1])
+	value := strings.ReplaceAll(strings.TrimSpace(fields[1]), ")", "")
+	return name, value
 }
 
 func (c *Collector) isValidAnnotation(input string) bool {
@@ -274,7 +336,7 @@ func (c *Collector) isAllowedPackage(pkgPath string) bool {
 	return false
 }
 
-func (c *Collector) parseHeader(cg *ast.CommentGroup, block Block) (string, Block) {
+func (c *Collector) parseHeader(cg *ast.CommentGroup, Entry Entry) (string, Entry) {
 
 	log.Tracef("parsing header on the comment group")
 
@@ -285,17 +347,17 @@ func (c *Collector) parseHeader(cg *ast.CommentGroup, block Block) (string, Bloc
 		title = strings.Join(w[2:], " ")
 	}
 
-	block.Header.Title = title
-	block.Header.Description = "// TODO"
+	Entry.Header.Title = title
+	Entry.Header.Description = "// TODO"
 
-	return n, block
+	return n, Entry
 }
 
-func (c *Collector) parseFunc(block Block, pkg *packages.Package, name string, file *ast.File) (Block, error) {
+func (c *Collector) parseFunc(Entry Entry, pkg *packages.Package, name string, file *ast.File) (Entry, error) {
 
 	log.Tracef("parsing func %s on package %s", name, pkg.Name)
 
-	block.Func = BlockFunc{
+	Entry.Func = EntryFunc{
 		Name: name,
 	}
 
@@ -310,8 +372,8 @@ func (c *Collector) parseFunc(block Block, pkg *packages.Package, name string, f
 
 					s := sig.Type().(*types.Signature)
 
-					block = c.parseFuncParams(s, block)
-					block = c.parseFuncResults(s, block)
+					Entry = c.parseFuncParams(name, s, Entry)
+					Entry = c.parseFuncResults(name, s, Entry)
 
 				}
 
@@ -319,36 +381,36 @@ func (c *Collector) parseFunc(block Block, pkg *packages.Package, name string, f
 		}
 		return true
 	})
-	return block, nil
+	return Entry, nil
 }
 
-func (c *Collector) parseFuncParams(s *types.Signature, block Block) Block {
-	log.Tracef("parsing func params")
+func (c *Collector) parseFuncParams(name string, s *types.Signature, Entry Entry) Entry {
+	log.Tracef("parsing func %s params", name)
 
 	params := s.Params()
 	if params.Len() > 0 {
 		for i := 0; i < params.Len(); i++ {
 			param := params.At(i)
-			block.Func.Parameters = append(block.Func.Parameters, BlockFuncParameter{
+			Entry.Func.Parameters = append(Entry.Func.Parameters, EntryFuncParameter{
 				Name: param.Name(),
 				Type: param.Type().String(),
 			})
 		}
 	}
 
-	return block
+	return Entry
 }
 
-func (c *Collector) parseFuncResults(s *types.Signature, block Block) Block {
-	log.Tracef("parsing func results")
+func (c *Collector) parseFuncResults(name string, s *types.Signature, entry Entry) Entry {
+	log.Tracef("parsing func %s results", name)
 	results := s.Results()
 	if results.Len() > 0 {
 		for i := 0; i < results.Len(); i++ {
-			block.Func.Results = append(block.Func.Results, BlockFuncResult{
+			entry.Func.Results = append(entry.Func.Results, EntryFuncResult{
 				Type: results.At(i).Type().String(),
 				Name: results.At(i).Name(),
 			})
 		}
 	}
-	return block
+	return entry
 }
