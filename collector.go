@@ -146,21 +146,7 @@ func (c *Collector) load(value string) (err error) {
 	return nil
 }
 
-type structInfo struct {
-	Name     string
-	Methods  []funcInfo
-	Comments []string
-}
-
-type funcInfo struct {
-	Name     string
-	Params   []EntryFuncType
-	Returns  []EntryFuncType
-	Comments []string
-}
-
-func getStructInfos(file *ast.File) []structInfo {
-	var structInfos []structInfo
+func getStructInfos(file *ast.File) (entries []Entry) {
 
 	// Percorra as declarações do arquivo
 	for _, decl := range file.Decls {
@@ -171,34 +157,36 @@ func getStructInfos(file *ast.File) []structInfo {
 			for _, spec := range genDecl.Specs {
 				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
 					// Verifique se é uma estrutura
-					structInfo := structInfo{
-						Name:     typeSpec.Name.Name,
-						Methods:  getStructMethods(file, typeSpec.Name.Name),
+					structInfo := Entry{
+						Struct:   typeSpec.Name.Name,
 						Comments: getComments(genDecl.Doc),
 					}
-					structInfos = append(structInfos, structInfo)
+					entries = append(entries, structInfo)
+					entries = append(entries, getStructMethods(file, typeSpec.Name.Name)...)
 				}
 			}
 		}
 	}
 
-	return structInfos
+	return entries
 }
 
 // getStructMethods returns all the methods associated with the provided struct.
-func getStructMethods(file *ast.File, structName string) []funcInfo {
-	var funcInfos []funcInfo
+func getStructMethods(file *ast.File, structName string) (entries []Entry) {
 
 	for _, decl := range file.Decls {
 		if funcDecl, ok := decl.(*ast.FuncDecl); ok {
 			if funcDecl.Recv != nil && len(funcDecl.Recv.List) > 0 {
 				if starExpr, ok := funcDecl.Recv.List[0].Type.(*ast.StarExpr); ok {
 					if ident, ok := starExpr.X.(*ast.Ident); ok && ident.Name == structName {
-						funcInfos = append(funcInfos, funcInfo{
-							Name:     funcDecl.Name.Name,
-							Params:   getFuncParams(funcDecl.Type.Params),
-							Returns:  getFuncParams(funcDecl.Type.Results),
+						entries = append(entries, Entry{
+							Struct:   structName,
 							Comments: getComments(funcDecl.Doc),
+							Func: EntryFunc{
+								Name:       funcDecl.Name.Name,
+								Parameters: getFuncParams(funcDecl.Type.Params),
+								Results:    getFuncParams(funcDecl.Type.Results),
+							},
 						})
 					}
 				}
@@ -206,15 +194,12 @@ func getStructMethods(file *ast.File, structName string) []funcInfo {
 		}
 	}
 
-	return funcInfos
+	return entries
 }
 
-func getFuncInfos(file *ast.File) []funcInfo {
-	var funcInfos []funcInfo
+func getFuncInfos(file *ast.File) (entries []Entry) {
 
-	// Percorra as declarações do arquivo
 	for _, decl := range file.Decls {
-		// Verifique se é uma declaração de função
 		if funcDecl, ok := decl.(*ast.FuncDecl); ok {
 
 			if funcDecl.Recv != nil && len(funcDecl.Recv.List) > 0 {
@@ -225,17 +210,19 @@ func getFuncInfos(file *ast.File) []funcInfo {
 				}
 			}
 
-			funcInfo := funcInfo{
-				Name:     funcDecl.Name.Name,
-				Params:   getFuncParams(funcDecl.Type.Params),
-				Returns:  getFuncParams(funcDecl.Type.Results),
+			funcInfo := Entry{
+				Func: EntryFunc{
+					Name:       funcDecl.Name.Name,
+					Parameters: getFuncParams(funcDecl.Type.Params),
+					Results:    getFuncParams(funcDecl.Type.Results),
+				},
 				Comments: getComments(funcDecl.Doc),
 			}
-			funcInfos = append(funcInfos, funcInfo)
+			entries = append(entries, funcInfo)
 		}
 	}
 
-	return funcInfos
+	return entries
 }
 
 func getFuncParams(fieldList *ast.FieldList) []EntryFuncType {
@@ -282,54 +269,21 @@ func (c *Collector) filterFiles(p *packages.Package) (entries []Entry, err error
 			modName = p.Module.Path
 		}
 
-		entry := Entry{
-			File:    file.Name.String(),
-			Path:    p.PkgPath,
-			Module:  modName,
-			Package: p.Name,
-		}
+		var cap []Entry
+		cap = append(cap, getStructInfos(file)...)
+		cap = append(cap, getFuncInfos(file)...)
 
-		// Obtenha informações de estruturas
-		structInfos := getStructInfos(file)
+		for _, ens := range cap {
 
-		for _, info := range structInfos {
+			ens.File = file.Name.String()
+			ens.Header = c.parseHeader(ens.Comments)
+			ens.Path = p.PkgPath
+			ens.Module = modName
+			ens.Package = p.Name
 
-			if ans, ok := c.getAnnotations(info.Comments); ok {
-				entry.Annotations = ans
-				entry.Struct = info.Name
-				entries = append(entries, entry)
-			}
-
-			for _, method := range info.Methods {
-
-				if ans, ok := c.getAnnotations(method.Comments); ok {
-					entry.Annotations = ans
-					entry.Struct = info.Name
-					entry.Func = EntryFunc{
-						Name:       method.Name,
-						Parameters: method.Params,
-						Results:    method.Returns,
-					}
-					entries = append(entries, entry)
-				}
-
-			}
-
-		}
-
-		funcInfos := getFuncInfos(file)
-
-		for _, info := range funcInfos {
-
-			if ans, ok := c.getAnnotations(info.Comments); ok {
-				entry.Annotations = ans
-				entry.Struct = info.Name
-				entry.Func = EntryFunc{
-					Name:       info.Name,
-					Parameters: info.Params,
-					Results:    info.Returns,
-				}
-				entries = append(entries, entry)
+			if ans, ok := c.getAnnotations(ens.Comments); ok {
+				ens.Annotations = ans
+				entries = append(entries, ens)
 			}
 
 		}
@@ -446,19 +400,18 @@ func (c *Collector) isAllowedPackage(pkgPath string) bool {
 	return false
 }
 
-func (c *Collector) parseHeader(cg *ast.CommentGroup, Entry Entry) (string, Entry) {
+func (c *Collector) parseHeader(cmts []string) EntryHeader {
 
 	log.Tracef("parsing header on the comment group")
 
-	w := strings.Split(strings.ReplaceAll(cg.List[0].Text, "//", ""), " ")
-	n := w[1]
+	w := strings.Split(strings.ReplaceAll(cmts[0], "//", ""), " ")
 	var title string
 	if len(w) > 2 {
 		title = strings.Join(w[2:], " ")
 	}
 
-	Entry.Header.Title = title
-	Entry.Header.Description = "// TODO"
-
-	return n, Entry
+	return EntryHeader{
+		Title:       title,
+		Description: "// TODO",
+	}
 }

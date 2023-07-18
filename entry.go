@@ -21,7 +21,8 @@ type EntryFunc struct {
 
 // Entry represents a single entry parsed from the *ast.File.
 type Entry struct {
-	Header      EntryHeader  // Metadata for the entry
+	Header      EntryHeader // Metadata for the entry
+	Comments    []string
 	Module      string       // Name of the module where the entry is located
 	File        string       // Name of the file where the entry is located
 	Path        string       // Path to the file where the entry is located
