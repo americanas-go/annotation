@@ -30,5 +30,4 @@ func main() {
 
 	j, _ := yaml.Marshal(collector.Entries())
 	fmt.Println(string(j))
-
 }

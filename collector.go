@@ -1,7 +1,6 @@
 package annotation
 
 import (
-	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
@@ -155,8 +154,8 @@ type structInfo struct {
 
 type funcInfo struct {
 	Name     string
-	Params   []string
-	Returns  []string
+	Params   []EntryFuncType
+	Returns  []EntryFuncType
 	Comments []string
 }
 
@@ -239,19 +238,22 @@ func getFuncInfos(file *ast.File) []funcInfo {
 	return funcInfos
 }
 
-func getFuncParams(fieldList *ast.FieldList) []string {
-	var params []string
+func getFuncParams(fieldList *ast.FieldList) []EntryFuncType {
+	var params []EntryFuncType
 
 	if fieldList != nil {
 		for _, field := range fieldList.List {
 			paramType := types.ExprString(field.Type)
 			if len(field.Names) > 0 {
 				for _, name := range field.Names {
-					param := fmt.Sprintf("%s %s", name.Name, paramType)
-					params = append(params, param)
+					//paramInfo := fmt.Sprintf("%s %s", name.Name, paramType)
+					params = append(params, EntryFuncType{
+						Name: name.Name,
+						Type: paramType,
+					})
 				}
 			} else {
-				params = append(params, paramType)
+				params = append(params, EntryFuncType{Type: paramType})
 			}
 		}
 	}
@@ -271,67 +273,9 @@ func getComments(group *ast.CommentGroup) []string {
 	return comments
 }
 
-func (c *Collector) filterFiles(p *packages.Package) (m []Entry, err error) {
+func (c *Collector) filterFiles(p *packages.Package) (entries []Entry, err error) {
 
 	for _, file := range p.Syntax {
-
-		/*
-			var modName string
-			if p.Module != nil {
-				modName = p.Module.Path
-			}
-
-			entry := Entry{
-				File:    file.Name.String(),
-				Path:    p.PkgPath,
-				Module:  modName,
-				Package: p.Name,
-			}
-		*/
-
-		// Obtenha informações de estruturas
-		structInfos := getStructInfos(file)
-
-		// Imprima as informações de estruturas
-		fmt.Println("Estruturas:")
-		for _, info := range structInfos {
-			fmt.Println("Nome:", info.Name)
-			fmt.Println("Métodos:")
-			for _, method := range info.Methods {
-				fmt.Println("  Nome:", method.Name)
-				fmt.Println("  Parâmetros:", method.Params)
-				fmt.Println("  Retornos:", method.Returns)
-				fmt.Println("  Comentários:", method.Comments)
-				fmt.Println()
-			}
-			fmt.Println("Comentários:", info.Comments)
-			fmt.Println()
-		}
-
-		// Obtenha informações de funções
-		funcInfos := getFuncInfos(file)
-
-		// Imprima as informações de funções
-		fmt.Println("Funções:")
-		for _, info := range funcInfos {
-			fmt.Println("Nome:", info.Name)
-			fmt.Println("Parâmetros:", info.Params)
-			fmt.Println("Retornos:", info.Returns)
-			fmt.Println("Comentários:", info.Comments)
-			fmt.Println()
-		}
-
-	}
-
-	return nil, err
-}
-
-/*
-func (c *Collector) filterFiles(p *packages.Package) (m []Entry, err error) {
-
-	for _, file := range p.Syntax {
-
-		log.Tracef("parsing file %s", file.Name)
 
 		var modName string
 		if p.Module != nil {
@@ -345,100 +289,63 @@ func (c *Collector) filterFiles(p *packages.Package) (m []Entry, err error) {
 			Package: p.Name,
 		}
 
-		//fileSet := token.NewFileSet()
-		// comments := ast.NewCommentMap(fileSet, file, file.Comments)
+		// Obtenha informações de estruturas
+		structInfos := getStructInfos(file)
 
-		for _, commentGroup := range file.Comments {
-			eas, ok := c.getComments(commentGroup)
-			if !ok {
-				continue
+		for _, info := range structInfos {
+
+			if ans, ok := c.getAnnotations(info.Comments); ok {
+				entry.Annotations = ans
+				entry.Struct = info.Name
+				entries = append(entries, entry)
 			}
 
-			var n string
-			n, entry = c.parseHeader(commentGroup, entry)
-			entry.Annotations = eas
+			for _, method := range info.Methods {
 
-			fmt.Println(n)
-
-			var funcName string
-			var funcParams, funcResults *ast.FieldList
-
-			ast.Inspect(file, func(node ast.Node) bool {
-
-				switch decl := node.(type) {
-				case *ast.FuncDecl:
-					funcName = decl.Name.Name
-					funcParams = decl.Type.Params
-					funcResults = decl.Type.Results
-					return false
-				case *ast.TypeSpec:
-					entry.Struct = decl.Name.Name
-					if field, ok := node.(*ast.Field); ok {
-						if len(field.Names) > 0 {
-							if _, ok := field.Type.(*ast.FuncType); ok {
-								funcName = field.Names[0].Name
-								funcParams = field.Type.(*ast.FuncType).Params
-								funcResults = field.Type.(*ast.FuncType).Results
-							}
-						}
+				if ans, ok := c.getAnnotations(method.Comments); ok {
+					entry.Annotations = ans
+					entry.Struct = info.Name
+					entry.Func = EntryFunc{
+						Name:       method.Name,
+						Parameters: method.Params,
+						Results:    method.Returns,
 					}
-					return false
+					entries = append(entries, entry)
 				}
 
-				return true
-			})
+			}
 
-			if funcName != "" {
+		}
 
+		funcInfos := getFuncInfos(file)
+
+		for _, info := range funcInfos {
+
+			if ans, ok := c.getAnnotations(info.Comments); ok {
+				entry.Annotations = ans
+				entry.Struct = info.Name
 				entry.Func = EntryFunc{
-					Name: funcName,
+					Name:       info.Name,
+					Parameters: info.Params,
+					Results:    info.Returns,
 				}
-
-				if funcParams != nil {
-					for _, param := range funcParams.List {
-						for _, name := range param.Names {
-							entry.Func.Parameters = append(entry.Func.Parameters, EntryFuncParameter{
-								Name: name.Name,
-								Type: types.ExprString(param.Type),
-							})
-						}
-					}
-				}
-
-				if funcResults != nil {
-					for _, param := range funcResults.List {
-						for _, name := range param.Names {
-							entry.Func.Results = append(entry.Func.Results, EntryFuncResult{
-								Name: name.Name,
-								Type: types.ExprString(param.Type),
-							})
-
-						}
-					}
-				}
+				entries = append(entries, entry)
 			}
 
-			m = append(m, entry)
 		}
 
 	}
 
-	return m, nil
+	return entries, err
 }
 
-*/
-
-func (c *Collector) getComments(cg *ast.CommentGroup) (ans []Annotation, ok bool) {
+func (c *Collector) getAnnotations(cmts []string) (ans []Annotation, ok bool) {
 
 	log.Tracef("get comments comments")
 
-	if cg == nil {
-		return nil, false
-	}
-
 	var contains bool
-	for _, cc := range cg.List {
-		an, ok := c.extractAnnotation(cc.Text)
+	for _, cmt := range cmts {
+		an, ok := c.extractAnnotation(cmt)
 		if !ok {
 			continue
 		}
