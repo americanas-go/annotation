@@ -22,7 +22,7 @@ func main() {
 
 	collector, err := annotation.Collect(
 		// annotation.WithFilters("Inject"),
-		annotation.WithPath(basePath+"/examples/simple/app"),
+		annotation.WithPath(basePath),
 		annotation.WithPackages("github.com/americanas-go/annotation", "github.com/jpfaria/tests/annotated"),
 	)
 	if err != nil {

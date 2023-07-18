@@ -404,6 +404,10 @@ func (c *Collector) parseHeader(cmts []string) EntryHeader {
 
 	log.Tracef("parsing header on the comment group")
 
+	if len(cmts) == 0 {
+		return EntryHeader{}
+	}
+
 	w := strings.Split(strings.ReplaceAll(cmts[0], "//", ""), " ")
 	var title string
 	if len(w) > 2 {
