@@ -23,6 +23,31 @@ func (c *Collector) Entries() []Entry {
 	return c.entries
 }
 
+func (c *Collector) EntriesWithArgType(annotation string, arg string) (entries []Entry) {
+	for _, entry := range c.Entries() {
+		if entry.IsStruct() {
+			continue
+		}
+		var p, a bool
+		for _, par := range entry.Func.Parameters {
+			if par.Type == arg {
+				p = true
+				break
+			}
+		}
+		for _, ann := range entry.Annotations {
+			if ann.Name == annotation {
+				a = true
+				break
+			}
+		}
+		if a && p {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
 func (c *Collector) EntriesWithResultType(annotation string, result string) (entries []Entry) {
 	for _, entry := range c.Entries() {
 		if entry.IsStruct() {
