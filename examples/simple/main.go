@@ -29,7 +29,11 @@ func main() {
 		log.Error(err.Error())
 	}
 
-	j, _ := yaml.Marshal(collector.Entries())
-	fmt.Println(string(j))
+	j1, _ := yaml.Marshal(collector.Entries())
+	fmt.Println(string(j1))
+
+	entries1 := collector.EntriesWith("MyMethodAnnotation")
+	j2, _ := yaml.Marshal(entries1)
+	fmt.Println(string(j2))
 
 }
