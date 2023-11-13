@@ -2,8 +2,6 @@ module github.com/americanas-go/annotation
 
 go 1.21
 
-toolchain go1.21.0
-
 require (
 	github.com/americanas-go/log v1.8.9
 	github.com/jpfaria/tests v0.0.3
