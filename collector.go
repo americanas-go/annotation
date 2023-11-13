@@ -396,7 +396,18 @@ func (c *Collector) isValidAnnotation(input string) bool {
 
 	// Checking if there are parentheses and if they have valid key-value pairs
 	parenSplit := strings.SplitN(split[1], "(", 2)
+	if len(parenSplit) == 1 {
+		spcSplit := strings.Split(parenSplit[0], " ")
+		if len(spcSplit) > 1 {
+			return false
+		}
+		log.Debugf("there is a valid annotation in the comment")
+		return true
+	}
 	if len(parenSplit) == 2 {
+		if !strings.Contains(parenSplit[1], ")") {
+			return false
+		}
 		parenContent := strings.Trim(parenSplit[1], " )")
 		pairs := strings.Split(parenContent, ",")
 		for _, pair := range pairs {

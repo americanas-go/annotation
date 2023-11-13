@@ -26,7 +26,9 @@ func TestCollector_isValidAnnotation(t *testing.T) {
 		{"Test14", "// FooFunc Lorem ipsum dolor sit amet, consectetur adipiscing elit", false},
 		{"Test15", "//FooFunc Lorem ipsum dolor sit amet, consectetur adipiscing elit", false},
 		{"Test16", "// @MyAnnotation(code=201)", true},
+		{"Test16", "// @MyAnnotation(code=201", false},
 		{"Test16", "// @A Param query foo bool true tiam sed efficitur purus", false},
+		{"Test16", "// @Invoke", true},
 	}
 
 	for _, tt := range tests {
