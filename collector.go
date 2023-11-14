@@ -352,12 +352,12 @@ func (c *Collector) extractAnnotation(cmt string) (Annotation, bool) {
 		return Annotation{}, false
 	}
 
-	var allowed bool
+	allowed := true
 	for _, filter := range c.filters {
 		a := strings.Join([]string{"@", filter}, "")
-		if strings.Contains(cmt, a) {
+		if !strings.Contains(cmt, a) {
 			log.Warnf("The annotation is valid but will be ignored as it is not included in the filters. %s", cmt)
-			allowed = true
+			allowed = false
 			break
 		}
 	}
@@ -371,7 +371,7 @@ func (c *Collector) extractAnnotation(cmt string) (Annotation, bool) {
 	}
 
 	name, value := c.splitNameValue(cmt)
-	log.Infof("discovered annotation %s with values (%s)", name, value)
+	log.Infof("discovered annotation @%s with values (%s)", name, value)
 	return NewAnnotation(name, value), true
 }
 
