@@ -375,12 +375,13 @@ func (c *Collector) extractAnnotation(cmt string) (Annotation, bool) {
 	return NewAnnotation(name, value), true
 }
 
-func (c *Collector) splitNameValue(cmt string) (string, string) {
+func (c *Collector) splitNameValue(cmt string) (name string, value string) {
 	fields := strings.Split(cmt, "(")
 	names := strings.Split(fields[0], "@")
-	name := strings.TrimSpace(names[1])
-	value := strings.ReplaceAll(strings.TrimSpace(fields[1]), ")", "")
-	return name, value
+	if len(fields) > 1 {
+		value = strings.ReplaceAll(strings.TrimSpace(fields[1]), ")", "")
+	}
+	return strings.TrimSpace(names[1]), value
 }
 
 func (c *Collector) isValidAnnotation(input string) bool {
