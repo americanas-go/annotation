@@ -10,6 +10,8 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
+type filterFunc func(Entry) bool
+
 type Collector struct {
 	filters      []string
 	pkgs         []string
@@ -23,78 +25,46 @@ func (c *Collector) Entries() []Entry {
 	return c.entries
 }
 
-func (c *Collector) EntriesWithArgType(annotation string, arg string) (entries []Entry) {
+func (c *Collector) filterEntries(filter filterFunc) (entries []Entry) {
 	for _, entry := range c.Entries() {
-		if entry.IsStruct() {
-			continue
-		}
-		var p, a bool
-		for _, par := range entry.Func.Parameters {
-			if par.Type == arg {
-				p = true
-				break
-			}
-		}
-		for _, ann := range entry.Annotations {
-			if ann.Name == annotation {
-				a = true
-				break
-			}
-		}
-		if a && p {
+		if filter(entry) {
 			entries = append(entries, entry)
 		}
 	}
-	return entries
+	return
 }
 
-func (c *Collector) EntriesWithResultType(annotation string, result string) (entries []Entry) {
-	for _, entry := range c.Entries() {
-		if entry.IsStruct() {
-			continue
-		}
-		var r, a bool
-		for _, res := range entry.Func.Results {
-			if res.Type == result {
-				r = true
-				break
-			}
-		}
-		for _, ann := range entry.Annotations {
-			if ann.Name == annotation {
-				a = true
-				break
-			}
-		}
-		if a && r {
-			entries = append(entries, entry)
-		}
-	}
-	return entries
+func (c *Collector) EntriesWithArgType(annotationName string, argumentType string) []Entry {
+	return c.filterEntries(func(entry Entry) bool {
+		return !entry.IsStruct() &&
+			containsParamOfType(entry.Func.Parameters, argumentType) &&
+			containsAnnotation(entry.Annotations, annotationName)
+	})
 }
 
-func (c *Collector) EntriesWith(annotation string) (entries []Entry) {
-	for _, entry := range c.Entries() {
-		for _, ann := range entry.Annotations {
-			if ann.Name == annotation {
-				entries = append(entries, entry)
-				break
-			}
-		}
-	}
-	return entries
+func (c *Collector) EntriesWithResultType(annotation string, result string) []Entry {
+	return c.filterEntries(func(entry Entry) bool {
+		return !entry.IsStruct() &&
+			hasSpecificAnnotation(entry, annotation) &&
+			hasSpecificResultType(entry, result)
+	})
 }
 
-func (c *Collector) EntriesWithPrefix(prefix string) (entries []Entry) {
-	for _, entry := range c.Entries() {
+func (c *Collector) EntriesWith(annotation string) []Entry {
+	return c.filterEntries(func(entry Entry) bool {
+		return containsAnnotation(entry.Annotations, annotation)
+	})
+}
+
+func (c *Collector) EntriesWithPrefix(prefix string) []Entry {
+	return c.filterEntries(func(entry Entry) bool {
 		for _, ann := range entry.Annotations {
 			if strings.HasPrefix(ann.Name, prefix) {
-				entries = append(entries, entry)
-				break
+				return true
 			}
 		}
-	}
-	return entries
+		return false
+	})
 }
 
 func (c *Collector) visitPath(path string, info os.FileInfo, err error) error {
@@ -171,17 +141,33 @@ func (c *Collector) load(value string) (err error) {
 	return nil
 }
 
+func containsParamOfType(parameters []EntryFuncType, paramType string) bool {
+	for _, parameter := range parameters {
+		if parameter.Type == paramType {
+			return true
+		}
+	}
+
+	return false
+}
+
+func containsAnnotation(annotations []Annotation, annoName string) bool {
+	for _, annotation := range annotations {
+		if annotation.Name == annoName {
+			return true
+		}
+	}
+
+	return false
+}
+
 func getStructInfos(file *ast.File) (entries []Entry) {
 
-	// Percorra as declarações do arquivo
 	for _, decl := range file.Decls {
 
-		// Verifique se é uma declaração de tipo (estrutura)
 		if genDecl, ok := decl.(*ast.GenDecl); ok && genDecl.Tok == token.TYPE {
-			// Verifique cada especificador de tipo
 			for _, spec := range genDecl.Specs {
 				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
-					// Verifique se é uma estrutura
 					structInfo := Entry{
 						Struct:   typeSpec.Name.Name,
 						Comments: getComments(genDecl.Doc),
@@ -220,6 +206,24 @@ func getStructMethods(file *ast.File, structName string) (entries []Entry) {
 	}
 
 	return entries
+}
+
+func hasSpecificResultType(entry Entry, result string) bool {
+	for _, res := range entry.Func.Results {
+		if res.Type == result {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSpecificAnnotation(entry Entry, annotation string) bool {
+	for _, ann := range entry.Annotations {
+		if ann.Name == annotation {
+			return true
+		}
+	}
+	return false
 }
 
 func getFuncInfos(file *ast.File) (entries []Entry) {
